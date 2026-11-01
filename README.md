@@ -58,3 +58,23 @@ VOLUME_MOUNT: /app/data
 - **不要开 scale-to-zero**：监控程序靠自身定时轮询，实例休眠后就不再检查，界面上却看不出异常。脚本里已固定 `policy: off`。
 - 免费额度只有 2 个 running 实例，一个常驻监控就占掉一个。
 - `IMAGE_REF` 必须写成 `<org>/<name>:tag`，裸名会被解析到 `official/` 命名空间，拉不到自己的镜像。
+
+## 踩坑记录
+
+部署过程中实际踩到的四个坑，都已在仓库里修好：
+
+1. **只给 Dockerfile 构建会得到 kernel-less 镜像**
+   报错：`No platform kernel available for kernel-less image: ENOMEDIUM`
+   → 必须有 `Kraftfile` 并声明 `runtime: base-compat:latest`，否则镜像里没有内核。
+
+2. **工作目录不对导致启动即退出**
+   报错：`Cannot find 'dist/index.html', did you install correctly?`
+   → Kuma 用相对路径找前端产物，Kraftfile 的 `cmd` 里必须先 `cd /app`。
+
+3. **按名字查询实例会 404**
+   `GET /v1/instances/<name>` 有时返回 404，但列表接口里明明有。
+   → 一律用创建时返回的 `uuid` 追踪。
+
+4. **首次 `start` 偶发不生效**
+   调用返回 success，但实例仍是 stopped。
+   → 脚本里做了最多 3 轮重试，每轮轮询 8 次。
