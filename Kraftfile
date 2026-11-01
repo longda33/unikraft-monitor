@@ -6,5 +6,6 @@ runtime: base-compat:latest
 
 rootfs: ./Dockerfile
 
-# Uptime Kuma 官方镜像的 WORKDIR 是 /app，这里用绝对路径，避免 cwd 不确定
-cmd: ["/usr/local/bin/node", "/app/server/server.js"]
+# Uptime Kuma 用相对路径找 dist/index.html，必须把工作目录切到 /app，
+# 否则会报 "Cannot find 'dist/index.html'" 并退出
+cmd: ["/bin/sh", "-c", "cd /app && exec /usr/local/bin/node server/server.js"]
