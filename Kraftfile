@@ -1,0 +1,10 @@
+spec: v0.6
+
+# 关键：必须声明 runtime，否则构建出来的是 kernel-less 镜像，
+# 启动时会报 "No platform kernel available for kernel-less image: ENOMEDIUM"
+runtime: base-compat:latest
+
+rootfs: ./Dockerfile
+
+# Uptime Kuma 官方镜像的 WORKDIR 是 /app，这里用绝对路径，避免 cwd 不确定
+cmd: ["/usr/local/bin/node", "/app/server/server.js"]
