@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - "Dockerfile"
+      - "Kraftfile"
       - "deploy.sh"
       - ".github/workflows/deploy.yml"
 
@@ -33,13 +34,11 @@ jobs:
       - name: 登录 Unikraft
         env:
           UNIKRAFT_TOKEN: ${{ secrets.UNIKRAFT_TOKEN }}
-        run: |
-          echo "$UNIKRAFT_TOKEN" | unikraft login --token -
-          unikraft instances list || true
+        run: echo "$UNIKRAFT_TOKEN" | unikraft login --token -
 
+      # 必须基于 Kraftfile 构建：Dockerfile 单独构建出来是 kernel-less 镜像，起不来
       - name: 构建并推送镜像
-        run: |
-          unikraft build ./Dockerfile --arch x86_64 --output "$IMAGE_REF"
+        run: unikraft build . --output "$IMAGE_REF"
 
       - name: 部署实例
         env:
