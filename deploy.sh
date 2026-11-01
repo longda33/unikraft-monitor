@@ -41,7 +41,7 @@ else
     "${API}/v1/volumes" >/dev/null
 fi
 
-# 3) 创建实例
+# 3) 创建实例（用 uuid 追踪，按名查询的接口不可靠）
 BODY="$(mktemp)"
 cat > "${BODY}" <<EOF
 {
@@ -50,6 +50,7 @@ cat > "${BODY}" <<EOF
   "memory_mb": ${MEM_MB},
   "vcpus": ${VCPUS},
   "restart_policy": "on-failure",
+  "env": {"DATA_DIR": "${VOLUME_MOUNT}", "UPTIME_KUMA_PORT": "${DEST_PORT}"},
   "service_group": {
     "services": [
       {"port": 443, "destination_port": ${DEST_PORT}, "protocol": "tcp", "handlers": ["http", "tls"]}
@@ -61,22 +62,31 @@ cat > "${BODY}" <<EOF
 EOF
 
 echo "==> 创建实例"
-curl -fsS -X POST "${AUTH[@]}" -H "Content-Type: application/json" -d @"${BODY}" "${API}/v1/instances" >/dev/null
+UUID="$(curl -fsS -X POST "${AUTH[@]}" -H "Content-Type: application/json" -d @"${BODY}" "${API}/v1/instances" \
+  | jq -r '.data.instances[0].uuid')"
 rm -f "${BODY}"
+echo "    uuid=${UUID}"
 
 # 4) 启动
 echo "==> 启动实例"
 curl -fsS -X PUT "${AUTH[@]}" -H "Content-Type: application/json" \
-  -d "[{\"name\":\"${NAME}\",\"timeout_s\":-1}]" "${API}/v1/instances/start" >/dev/null || true
+  -d "[{\"uuid\":\"${UUID}\",\"timeout_s\":-1}]" "${API}/v1/instances/start" >/dev/null || true
 
-# 5) 汇报状态与访问域名
-sleep 5
-curl -fsS "${AUTH[@]}" "${API}/v1/instances/${NAME}" \
-  | jq -r '.data.instances[0] | "state=\(.state)  uptime_ms=\(.uptime_ms // 0)  url=https://\(.service_group.domains[0].fqdn)"'
+# 5) 等待并汇报
+for i in $(seq 1 10); do
+  sleep 6
+  INFO="$(curl -fsS "${AUTH[@]}" "${API}/v1/instances/${UUID}")"
+  STATE="$(echo "${INFO}" | jq -r '.data.instances[0].state')"
+  echo "    [${i}] state=${STATE}"
+  [ "${STATE}" = "running" ] && break
+done
 
-STATE="$(curl -fsS "${AUTH[@]}" "${API}/v1/instances/${NAME}" | jq -r '.data.instances[0].state')"
+URL="$(echo "${INFO}" | jq -r '.data.instances[0].service_group.domains[0].fqdn')"
+echo "==> 访问地址：https://${URL}"
+
 if [ "${STATE}" != "running" ]; then
-  echo "!! 实例未能保持 running，查看日志："
-  curl -fsS "${AUTH[@]}" "${API}/v1/instances/${NAME}/log" | jq -r '.data.instances[0].output // "(空)"'
+  echo "!! 实例未能保持 running，日志："
+  curl -fsS "${AUTH[@]}" "${API}/v1/instances/${UUID}/log" \
+    | jq -r '.data.instances[0].output // "(空)"' | base64 -d 2>/dev/null || true
   exit 1
 fi
