@@ -67,26 +67,28 @@ UUID="$(curl -fsS -X POST "${AUTH[@]}" -H "Content-Type: application/json" -d @"
 rm -f "${BODY}"
 echo "    uuid=${UUID}"
 
-# 4) 启动
+# 4) 启动（首次 start 偶发不生效，带重试）
 echo "==> 启动实例"
-curl -fsS -X PUT "${AUTH[@]}" -H "Content-Type: application/json" \
-  -d "[{\"uuid\":\"${UUID}\",\"timeout_s\":-1}]" "${API}/v1/instances/start" >/dev/null || true
+STATE=""
+for attempt in 1 2 3; do
+  curl -fsS -X PUT "${AUTH[@]}" -H "Content-Type: application/json" \
+    -d "[{\"uuid\":\"${UUID}\",\"timeout_s\":-1}]" "${API}/v1/instances/start" >/dev/null || true
 
-# 5) 等待并汇报
-for i in $(seq 1 10); do
-  sleep 6
-  INFO="$(curl -fsS "${AUTH[@]}" "${API}/v1/instances/${UUID}")"
-  STATE="$(echo "${INFO}" | jq -r '.data.instances[0].state')"
-  echo "    [${i}] state=${STATE}"
-  [ "${STATE}" = "running" ] && break
+  for i in $(seq 1 8); do
+    sleep 6
+    STATE="$(curl -fsS "${AUTH[@]}" "${API}/v1/instances/${UUID}" | jq -r '.data.instances[0].state')"
+    echo "    [try ${attempt}.${i}] state=${STATE}"
+    [ "${STATE}" = "running" ] && break 2
+  done
+  echo "    启动未生效，重试..."
 done
 
-URL="$(echo "${INFO}" | jq -r '.data.instances[0].service_group.domains[0].fqdn')"
+URL="$(curl -fsS "${AUTH[@]}" "${API}/v1/instances/${UUID}" | jq -r '.data.instances[0].service_group.domains[0].fqdn')"
 echo "==> 访问地址：https://${URL}"
 
 if [ "${STATE}" != "running" ]; then
   echo "!! 实例未能保持 running，日志："
   curl -fsS "${AUTH[@]}" "${API}/v1/instances/${UUID}/log" \
-    | jq -r '.data.instances[0].output // "(空)"' | base64 -d 2>/dev/null || true
+    | jq -r '.data.instances[0].output // ""' | base64 -d 2>/dev/null | tail -40 || true
   exit 1
 fi
